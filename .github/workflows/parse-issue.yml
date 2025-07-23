@@ -7,6 +7,8 @@ on:
 jobs:
   parse_issue_data:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write # <--- ADD THIS LINE HERE
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
