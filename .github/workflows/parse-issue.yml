@@ -8,7 +8,7 @@ jobs:
   parse_issue_data:
     runs-on: ubuntu-latest
     permissions:
-      issues: write # <--- ADD THIS LINE HERE
+      issues: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,8 +21,6 @@ jobs:
       - name: Get Workflow Run URL
         id: get_run_url
         run: |
-          # Construct the URL to the current workflow run
-          # This URL is stable and reliable
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "workflow_run_url=${RUN_URL}" >> "$GITHUB_OUTPUT"
 
@@ -38,46 +36,48 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Parse Issue Body and Inject into Environment
-        id: parse_and_inject # Give this step an ID to reference its outputs (like parsed_json)
+        id: parse_and_inject
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: python parse_issue_body.py
 
-      - name: Use Injected Environment Variables
+      - name: Use Parsed Data and Prepare Summary
+        id: prepare_summary # New step to prepare the summary text
         run: |
-          echo "ID from ENV: $id"
-          echo "Branch from ENV: $branch"
-          echo "Revision from ENV: $revision"
-          echo "Author from ENV: $author"
-          echo "Message from ENV: $message" # Will show with spaces instead of newlines
-          echo "Version Number from ENV: $version_number"
-
-          echo "---"
-          echo "All Parsed JSON (from step output, useful for debugging):"
-          echo "${{ steps.parse_and_inject.outputs.parsed_json }}"
-
-          # Now you can use these directly in 'if' conditions or other commands
-          if [ "$branch" == "main" ]; then
-            echo "Branch is main, proceeding with main branch actions."
+          # The parsed_json output is a JSON string. We can use `jq` to format it nicely.
+          # Ubuntu runners usually have `jq` pre-installed.
+          if command -v jq &> /dev/null; then
+              PARSED_SUMMARY=$(echo '${{ steps.parse_and_inject.outputs.parsed_json }}' | jq '. | to_entries[] | "* **\(.key)**: `\(.value)`"')
+              echo "parsed_summary<<EOF" >> "$GITHUB_OUTPUT"
+              echo "Parsed Parameters:" >> "$GITHUB_OUTPUT"
+              echo "${PARSED_SUMMARY}" >> "$GITHUB_OUTPUT"
+              echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+              echo "parsed_summary<<EOF" >> "$GITHUB_OUTPUT"
+              echo "Parsed Parameters (raw JSON - jq not found):" >> "$GITHUB_OUTPUT"
+              echo "\`\`\`json" >> "$GITHUB_OUTPUT"
+              echo "${{ steps.parse_and_inject.outputs.parsed_json }}" >> "$GITHUB_OUTPUT"
+              echo "\`\`\`" >> "$GITHUB_OUTPUT"
+              echo "EOF" >> "$GITHUB_OUTPUT"
           fi
-
-          # Example: Use 'id' in a command
-          echo "Processing ID: $id"
+        shell: bash # Ensure bash for multi-line output with EOF marker
 
       - name: Comment on Issue (Job Finished - Success)
-        if: success() # This step only runs if all preceding steps succeeded
+        if: success()
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.issue.number }}
           body: |
             ✅ **Workflow finished successfully!**
-            Parameters parsed and injected.
+            Parameters parsed and injected into environment variables.
+
+            ${{ steps.prepare_summary.outputs.parsed_summary }}
 
             Details: ${{ steps.get_run_url.outputs.workflow_run_url }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Comment on Issue (Job Finished - Failure)
-        if: failure() # This step only runs if any preceding step failed
+        if: failure()
         uses: peter-evans/create-or-update-comment@v4
         with:
           issue-number: ${{ github.event.issue.number }}
@@ -85,12 +85,14 @@ jobs:
             ❌ **Workflow failed!**
             There was an error during parameter parsing or subsequent steps.
 
+            ${{ steps.prepare_summary.outputs.parsed_summary }}
+
             Please check the workflow run for details: ${{ steps.get_run_url.outputs.workflow_run_url }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Close Issue on Success
-        if: success() # Only close if the job succeeded
+        if: success()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GITHUB_TOKEN for gh CLI
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue close ${{ github.event.issue.number }} --comment "🎉 This issue has been processed and is now closed. Thank you!"
