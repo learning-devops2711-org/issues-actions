@@ -16,6 +16,25 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Get Workflow Run URL
+        id: get_run_url
+        run: |
+          # Construct the URL to the current workflow run
+          # This URL is stable and reliable
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "workflow_run_url=${RUN_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on Issue (Job Started)
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            🚀 **Workflow started!**
+            Parsing issue body and processing parameters.
+
+            You can track the progress here: ${{ steps.get_run_url.outputs.workflow_run_url }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Parse Issue Body and Inject into Environment
         id: parse_and_inject # Give this step an ID to reference its outputs (like parsed_json)
         env:
@@ -42,3 +61,34 @@ jobs:
 
           # Example: Use 'id' in a command
           echo "Processing ID: $id"
+
+      - name: Comment on Issue (Job Finished - Success)
+        if: success() # This step only runs if all preceding steps succeeded
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ✅ **Workflow finished successfully!**
+            Parameters parsed and injected.
+
+            Details: ${{ steps.get_run_url.outputs.workflow_run_url }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on Issue (Job Finished - Failure)
+        if: failure() # This step only runs if any preceding step failed
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ❌ **Workflow failed!**
+            There was an error during parameter parsing or subsequent steps.
+
+            Please check the workflow run for details: ${{ steps.get_run_url.outputs.workflow_run_url }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Close Issue on Success
+        if: success() # Only close if the job succeeded
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GITHUB_TOKEN for gh CLI
+        run: |
+          gh issue close ${{ github.event.issue.number }} --comment "🎉 This issue has been processed and is now closed. Thank you!"
