@@ -6,7 +6,7 @@ on:
 
 jobs:
   parse_issue_data:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted # Or ['self-hosted', 'linux', 'my-custom-label']
     permissions:
       issues: write
     steps:
