@@ -1,0 +1,44 @@
+name: Parse Issue Body and Inject Env
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  parse_issue_data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Parse Issue Body and Inject into Environment
+        id: parse_and_inject # Give this step an ID to reference its outputs (like parsed_json)
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: python parse_issue_body.py
+
+      - name: Use Injected Environment Variables
+        run: |
+          echo "ID from ENV: $id"
+          echo "Branch from ENV: $branch"
+          echo "Revision from ENV: $revision"
+          echo "Author from ENV: $author"
+          echo "Message from ENV: $message" # Will show with spaces instead of newlines
+          echo "Version Number from ENV: $version_number"
+
+          echo "---"
+          echo "All Parsed JSON (from step output, useful for debugging):"
+          echo "${{ steps.parse_and_inject.outputs.parsed_json }}"
+
+          # Now you can use these directly in 'if' conditions or other commands
+          if [ "$branch" == "main" ]; then
+            echo "Branch is main, proceeding with main branch actions."
+          fi
+
+          # Example: Use 'id' in a command
+          echo "Processing ID: $id"
